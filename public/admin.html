@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel del streamer</title><link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main class="page">
+  <header class="header">
+    <div><h1>Panel del streamer</h1><p>Categorías, metas, colores y overlays por separado para OBS.</p></div>
+    <nav class="nav"><a href="/donar" target="_blank">Donar</a><a href="/bits" target="_blank">Bits</a><a href="/overlay" target="_blank">Ver categorías</a></nav>
+  </header>
+  <section class="grid">
+    <div class="card">
+      <h2>Categorías</h2>
+      <div class="two"><input id="newCategory" placeholder="Ej: Capítulos"><button class="primary" id="createCategory">Crear categoría</button></div>
+      <div class="status" id="categoryStatus"></div>
+      <div id="categoriesBox" class="category-list"></div>
+      <hr>
+      <h2>Añadir nueva cosa</h2>
+      <form id="createForm" autocomplete="off">
+        <label>Tipo</label><select id="type" name="type"><option value="normal">Meta normal</option><option value="chapters">Por capítulos</option></select>
+        <label>Nombre</label><input id="name" name="name" placeholder="Ej: Akane Bashi" required>
+        <label>Categoría</label><select id="category" name="category"></select>
+        <div id="normalFields"><label>Coste total en Bits</label><input id="targetBits" name="targetBits" type="number" min="1" step="1" value="2000"></div>
+        <div id="chapterFields" style="display:none">
+          <label>Bits necesarios para 1 capítulo</label><input id="bitsPerChapter" name="bitsPerChapter" type="number" min="1" step="1" value="2500">
+          <label>Número de capítulos objetivo</label><input id="totalChapters" name="totalChapters" type="number" min="1" step="1" value="5">
+          <div class="help">Luego puedes añadir más capítulos desde el panel. Si pagan de más, puede verse 3/2, 4/2, etc.</div>
+        </div>
+        <button class="primary" id="createBtn" type="submit">Crear y mostrar</button>
+        <div class="status" id="createStatus"></div>
+      </form>
+      <hr>
+      <h2>Bote sin repartir</h2>
+      <div class="pending-box"><strong id="pendingBits">0 Bits pendientes</strong></div>
+      <div class="two"><div><label>Meta</label><select id="pendingGoal"></select></div><div><label>Bits</label><input id="pendingAmount" type="number" min="1" step="1" placeholder="Ej: 500"></div></div>
+      <div class="btn-row"><button id="applyPending" class="primary">Aplicar a meta</button></div>
+      <div class="status" id="pendingStatus"></div>
+      <hr>
+      <h2>Enlaces para OBS</h2>
+      <label>Vista web de todas las categorías</label><div class="copy-box"><input readonly value="http://localhost:3000/overlay"><button class="small" data-copy="http://localhost:3000/overlay">Copiar</button></div><div class="help">Para OBS usa una URL de categoría concreta, no esta vista general.</div>
+      <div id="categoryOverlayLinks"></div>
+      <hr>
+      <h2>Fuente EDO</h2>
+      <div class="help">Para que se vea EDO de verdad, instala la fuente en Windows o pon tu archivo como <strong>public/fonts/edo.regular.ttf</strong>. Si OBS cachea la fuente, refresca la caché de la fuente de navegador.</div>
+    </div>
+    <div class="card">
+      <h2>Metas</h2>
+      <div class="muted" style="margin-bottom:12px">El overlay no usa barritas: solo texto tipo imagen. Aquí tienes controles manuales para el directo.</div>
+      <div id="goals" class="goal-list"></div>
+      <hr>
+      <h2>Historial reciente</h2><div class="tx-list" id="transactions"></div>
+    </div>
+  </section>
+</main>
+<script src="/app.js"></script>
+<script>
+const A = window.MetasApp;
+let state = null;
+function cats(){ return state?.categories?.length ? state.categories : [{id:'general', name:'General', title:'GENERAL', boxColor:'#06008f', textColor:'#fff', titleColor:'#fff', numberColor:'#fff'}]; }
+function goalById(id){ return (state?.goals || []).find(g => g.id === id); }
+function localObsUrl(path){ return `${location.origin}${path}`.replace('127.0.0.1','localhost'); }
+async function copyText(text, btn){
+  const old = btn.textContent;
+  try {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text);
+    else {
+      const input = btn.closest('.copy-box')?.querySelector('input') || document.createElement('input');
+      if (!input.parentNode) { input.value = text; document.body.appendChild(input); }
+      input.focus(); input.select(); document.execCommand('copy');
+      if (!btn.closest('.copy-box')) input.remove();
+    }
+    btn.textContent = 'Copiado ✅';
+    setTimeout(() => btn.textContent = old, 1200);
+  } catch {
+    const input = btn.closest('.copy-box')?.querySelector('input');
+    if (input) { input.focus(); input.select(); }
+    alert('No se ha podido copiar automáticamente. Copia el texto seleccionado.');
+  }
+}
+function render(s){ state=s; renderCategories(); renderGoals(); renderPending(); renderTransactions(); }
+function renderCategories(){
+  const list = cats();
+  const sel = A.qs('#category').value;
+  A.qs('#category').innerHTML = list.map(c=>`<option value="${A.esc(c.id)}">${A.esc(c.name)}</option>`).join('');
+  if(list.some(c=>c.id===sel)) A.qs('#category').value=sel;
+  A.qs('#categoriesBox').innerHTML = list.map(c=>{
+    const url = localObsUrl(`/overlay/${c.id}`);
+    return `
+    <article class="category-card" data-category-id="${A.esc(c.id)}">
+      <h3><span class="swatch" style="background:${A.esc(c.boxColor)}"></span>${A.esc(c.name)}</h3>
+      <div class="copy-box obs-link-box"><input readonly value="${A.esc(url)}"><button class="small primary" data-copy="${A.esc(url)}">Copiar link OBS</button></div>
+      <div class="preview-mini" style="background:${A.esc(c.boxColor)};color:${A.esc(c.textColor)}"><div class="t" style="color:${A.esc(c.titleColor)}">${A.esc(c.title)}</div><div class="l">AKANE BASHI (0/2) - <span style="color:${A.esc(c.numberColor)}">2500</span></div></div>
+      <details><summary>Editar categoría</summary>
+        <div class="two"><div><label>Nombre</label><input data-cat-edit="name" data-id="${A.esc(c.id)}" value="${A.esc(c.name)}"></div><div><label>Título/frase superior</label><input data-cat-edit="title" data-id="${A.esc(c.id)}" value="${A.esc(c.title)}"></div></div>
+        <div class="two"><div><label>Color cuadrado</label><input type="color" data-cat-edit="boxColor" data-id="${A.esc(c.id)}" value="${A.esc(c.boxColor)}"></div><div><label>Color letras</label><input type="color" data-cat-edit="textColor" data-id="${A.esc(c.id)}" value="${A.esc(c.textColor)}"></div></div>
+        <div class="two"><div><label>Color título</label><input type="color" data-cat-edit="titleColor" data-id="${A.esc(c.id)}" value="${A.esc(c.titleColor)}"></div><div><label>Color números</label><input type="color" data-cat-edit="numberColor" data-id="${A.esc(c.id)}" value="${A.esc(c.numberColor)}"></div></div>
+        <div class="btn-row"><button class="small primary" data-action="save-category" data-id="${A.esc(c.id)}">Guardar categoría</button><a class="pill" href="/overlay/${A.esc(c.id)}" target="_blank">Ver overlay</a></div>
+      </details>
+    </article>`;
+  }).join('');
+  A.qs('#categoryOverlayLinks').innerHTML = list.map(c=>{ const url=localObsUrl(`/overlay/${c.id}`); return `<label>Overlay ${A.esc(c.name)}</label><div class="copy-box"><input readonly value="${A.esc(url)}"><button class="small primary" data-copy="${A.esc(url)}">Copiar link OBS</button></div>`; }).join('');
+}
+function renderPending(){
+  A.qs('#pendingBits').textContent = `${A.number(state?.settings?.unassignedBits || 0)} Bits pendientes`;
+  const goals=A.activeGoals(state);
+  A.qs('#pendingGoal').innerHTML = goals.length ? goals.map(g=>`<option value="${A.esc(g.id)}">${A.esc(g.name)} · ${A.esc(g.categoryName)}</option>`).join('') : '<option value="">No hay metas activas</option>';
+}
+function renderGoals(){
+  const box=A.qs('#goals');
+  if(!state.goals.length){ box.innerHTML='<div class="empty">Todavía no hay metas.</div>'; return; }
+  box.innerHTML = state.goals.map(g=>g.type==='chapters'?renderChapter(g):renderNormal(g)).join('');
+}
+function manualBitsBox(g, label='Bits manuales'){
+  return `<div class="manual-box"><label>${label}</label><div class="manual-row"><input data-manual-bits="${A.esc(g.id)}" type="number" min="1" step="1" placeholder="Ej: 750"><button class="small primary" data-action="add-manual" data-id="${A.esc(g.id)}">Añadir Bits</button><button class="small warn" data-action="remove-manual" data-id="${A.esc(g.id)}">Quitar Bits</button></div></div>`;
+}
+function renderNormal(g){return `<article class="goal" data-goal-id="${A.esc(g.id)}"><div class="goal-top"><div><h3>${g.visible?'✅':'🙈'} ${A.esc(g.name)}</h3><div class="muted">Normal · ${A.esc(g.categoryName)} · ${A.esc(A.goalText(g))}</div></div><span class="pill">${Math.round(A.totalPct(g))}%</span></div><div class="progress"><div class="bar" style="width:${A.currentPct(g)}%"></div></div>${manualBitsBox(g)}<div class="btn-row"><button class="small warn" data-action="visible" data-id="${A.esc(g.id)}" data-visible="${!g.visible}">${g.visible?'Ocultar':'Mostrar'}</button><button class="small primary" data-action="complete" data-id="${A.esc(g.id)}">Completar</button><button class="small" data-action="reset" data-id="${A.esc(g.id)}">Reset</button><button class="small danger" data-action="delete" data-id="${A.esc(g.id)}">Borrar</button></div><details><summary>Editar manualmente</summary><div class="two"><div><label>Nombre</label><input data-edit="name" data-id="${A.esc(g.id)}" value="${A.esc(g.name)}"></div><div><label>Categoría</label><select data-edit="categoryId" data-id="${A.esc(g.id)}">${cats().map(c=>`<option value="${A.esc(c.id)}" ${c.id===g.categoryId?'selected':''}>${A.esc(c.name)}</option>`).join('')}</select></div></div><div class="two"><div><label>Coste total</label><input data-edit="targetBits" data-id="${A.esc(g.id)}" type="number" min="1" value="${g.targetBits}"></div><div><label>Bits acumulados</label><input data-edit="currentBits" data-id="${A.esc(g.id)}" type="number" min="0" value="${g.currentBits}"></div></div><div class="btn-row"><button class="small primary" data-action="save-normal" data-id="${A.esc(g.id)}">Guardar cambios</button></div></details></article>`;}
+function renderChapter(g){return `<article class="goal" data-goal-id="${A.esc(g.id)}"><div class="goal-top"><div><h3>${g.visible?'✅':'🙈'} ${A.esc(g.name)}</h3><div class="muted">Capítulos · ${A.esc(g.categoryName)} · ${A.esc(A.goalText(g))}</div></div><span class="pill">${A.number(g.completedChapters)}/${A.number(g.totalChapters)}</span></div><div class="progress"><div class="bar" style="width:${A.currentPct(g)}%"></div></div><div class="help">Puede pasar del objetivo: si paga 3 capítulos y el objetivo era 2, saldrá 3/2.</div><div class="btn-row"><button class="small primary" data-action="add-paid-chapter" data-id="${A.esc(g.id)}">Añadir 1 cap pagado</button><button class="small" data-action="add-target-chapter" data-id="${A.esc(g.id)}">+1 cap al objetivo</button></div>${manualBitsBox(g, 'Bits manuales para este capítulo')}<div class="btn-row"><button class="small warn" data-action="visible" data-id="${A.esc(g.id)}" data-visible="${!g.visible}">${g.visible?'Ocultar':'Mostrar'}</button><button class="small" data-action="reset" data-id="${A.esc(g.id)}">Reset</button><button class="small danger" data-action="delete" data-id="${A.esc(g.id)}">Borrar</button></div><details><summary>Editar capítulos manualmente</summary><div class="two"><div><label>Nombre</label><input data-edit="name" data-id="${A.esc(g.id)}" value="${A.esc(g.name)}"></div><div><label>Categoría</label><select data-edit="categoryId" data-id="${A.esc(g.id)}">${cats().map(c=>`<option value="${A.esc(c.id)}" ${c.id===g.categoryId?'selected':''}>${A.esc(c.name)}</option>`).join('')}</select></div></div><div class="two"><div><label>Bits por capítulo</label><input data-edit="bitsPerChapter" data-id="${A.esc(g.id)}" type="number" min="1" value="${g.bitsPerChapter}"></div><div><label>Capítulos objetivo</label><input data-edit="totalChapters" data-id="${A.esc(g.id)}" type="number" min="1" value="${g.totalChapters}"></div></div><div class="two"><div><label>Capítulos completados</label><input data-edit="completedChapters" data-id="${A.esc(g.id)}" type="number" min="0" value="${g.completedChapters}"></div><div><label>Bits del capítulo actual</label><input data-edit="currentBits" data-id="${A.esc(g.id)}" type="number" min="0" value="${g.currentBits}"></div></div><div class="btn-row"><button class="small primary" data-action="save-chapters" data-id="${A.esc(g.id)}">Guardar cambios</button></div></details></article>`;}
+function renderTransactions(){ const tx=state.transactions||[]; A.qs('#transactions').innerHTML = tx.length?tx.slice(0,40).map(t=>`<div class="tx"><strong>${A.esc(t.goalName||'Sistema')}</strong><br><span class="muted">${new Date(t.createdAt).toLocaleString()} · ${A.esc(t.source)} · ${A.esc(t.label)}</span><br>${A.esc(A.txStateText(t.after))}</div>`).join(''):'<div class="empty">Sin historial.</div>'; }
+function edit(id, field){ const el=A.qs(`[data-edit="${field}"][data-id="${CSS.escape(id)}"]`); return el?el.value:''; }
+function catEdit(id, field){ const el=A.qs(`[data-cat-edit="${field}"][data-id="${CSS.escape(id)}"]`); return el?el.value:''; }
+function manualBits(id){ const el=A.qs(`[data-manual-bits="${CSS.escape(id)}"]`); return Number(el?.value || 0); }
+function clearManualBits(id){ const el=A.qs(`[data-manual-bits="${CSS.escape(id)}"]`); if(el) el.value=''; }
+async function load(){ render(await A.api('/api/state')); }
+async function saveCategory(id){ await A.api(`/api/categories/${encodeURIComponent(id)}`, {method:'PATCH', body:JSON.stringify({name:catEdit(id,'name'), title:catEdit(id,'title'), boxColor:catEdit(id,'boxColor'), textColor:catEdit(id,'textColor'), titleColor:catEdit(id,'titleColor'), numberColor:catEdit(id,'numberColor')})}); }
+async function saveNormal(id){ await A.api(`/api/goals/${encodeURIComponent(id)}`, {method:'PATCH', body:JSON.stringify({name:edit(id,'name'), categoryId:edit(id,'categoryId'), targetBits:Number(edit(id,'targetBits')), currentBits:Number(edit(id,'currentBits'))})}); }
+async function saveChapters(id){ await A.api(`/api/goals/${encodeURIComponent(id)}`, {method:'PATCH', body:JSON.stringify({name:edit(id,'name'), categoryId:edit(id,'categoryId'), bitsPerChapter:Number(edit(id,'bitsPerChapter')), totalChapters:Number(edit(id,'totalChapters')), completedChapters:Number(edit(id,'completedChapters')), currentBits:Number(edit(id,'currentBits'))})}); }
+async function contribute(id, bits, label){ await A.api(`/api/goals/${encodeURIComponent(id)}/contribute`, {method:'POST', body:JSON.stringify({bits, source:'admin', label})}); }
+async function undo(id, bits, label){ await A.api(`/api/goals/${encodeURIComponent(id)}/undo`, {method:'POST', body:JSON.stringify({bits, source:'admin', label})}); }
+
+document.addEventListener('click', async ev=>{
+  const btn=ev.target.closest('button[data-action],button[data-copy]'); if(!btn) return;
+  if(btn.dataset.copy){ await copyText(btn.dataset.copy, btn); return; }
+  const action=btn.dataset.action, id=btn.dataset.id;
+  const goal = goalById(id);
+  try{ btn.disabled=true;
+    if(action==='save-category') await saveCategory(id);
+    else if(action==='add-manual') { const bits=manualBits(id); if(!bits||bits<=0) throw new Error('Escribe una cantidad de Bits.'); await contribute(id,bits,`añadir ${A.number(bits)} Bits manualmente`); clearManualBits(id); }
+    else if(action==='remove-manual') { const bits=manualBits(id); if(!bits||bits<=0) throw new Error('Escribe una cantidad de Bits.'); await undo(id,bits,`quitar ${A.number(bits)} Bits manualmente`); clearManualBits(id); }
+    else if(action==='add-paid-chapter') { if(!goal || goal.type!=='chapters') throw new Error('Esta meta no es de capítulos.'); await contribute(id, goal.bitsPerChapter, 'añadir 1 capítulo pagado'); }
+    else if(action==='add-target-chapter') { if(!goal || goal.type!=='chapters') throw new Error('Esta meta no es de capítulos.'); await A.api(`/api/goals/${encodeURIComponent(id)}`, {method:'PATCH', body:JSON.stringify({totalChapters: Number(goal.totalChapters || 0) + 1})}); }
+    else if(action==='visible') await A.api(`/api/goals/${encodeURIComponent(id)}`, {method:'PATCH', body:JSON.stringify({visible:btn.dataset.visible==='true'})});
+    else if(action==='complete') await A.api(`/api/goals/${encodeURIComponent(id)}`, {method:'PATCH', body:JSON.stringify({completed:true})});
+    else if(action==='reset') await A.api(`/api/goals/${encodeURIComponent(id)}/reset`, {method:'POST', body:'{}'});
+    else if(action==='delete'){ if(confirm('¿Borrar esta meta? Normalmente es mejor ocultarla.')) await A.api(`/api/goals/${encodeURIComponent(id)}`, {method:'DELETE'}); }
+    else if(action==='save-normal') await saveNormal(id);
+    else if(action==='save-chapters') await saveChapters(id);
+    await load();
+  }catch(err){ alert(err.message); } finally{ btn.disabled=false; }
+});
+A.qs('#createCategory').addEventListener('click', async()=>{ const name=A.qs('#newCategory').value.trim(); if(!name) return A.setStatus('#categoryStatus','Escribe un nombre.','bad'); try{ await A.api('/api/categories',{method:'POST',body:JSON.stringify({name})}); A.qs('#newCategory').value=''; A.setStatus('#categoryStatus','Categoría creada.','ok'); await load(); }catch(e){A.setStatus('#categoryStatus',e.message,'bad');} });
+function updateCreateFields(){ const t=A.qs('#type').value; A.qs('#normalFields').style.display=t==='normal'?'':'none'; A.qs('#chapterFields').style.display=t==='chapters'?'':'none'; }
+A.qs('#type').addEventListener('change', updateCreateFields); updateCreateFields();
+A.qs('#createForm').addEventListener('submit', async ev=>{ ev.preventDefault(); const f=ev.currentTarget; const payload={type:f.elements.type.value, name:f.elements.name.value.trim(), categoryId:f.elements.category.value}; if(payload.type==='chapters'){ payload.bitsPerChapter=Number(f.elements.bitsPerChapter.value||2500); payload.totalChapters=Number(f.elements.totalChapters.value||5); } else payload.targetBits=Number(f.elements.targetBits.value||2000); try{ A.qs('#createBtn').disabled=true; const r=await A.api('/api/goals',{method:'POST',body:JSON.stringify(payload)}); f.elements.name.value=''; A.setStatus('#createStatus',`Creada: ${r.goal.name}`,'ok'); await load(); }catch(e){A.setStatus('#createStatus',e.message,'bad');}finally{A.qs('#createBtn').disabled=false;} });
+A.qs('#applyPending').addEventListener('click', async()=>{ const goalId=A.qs('#pendingGoal').value, bits=Number(A.qs('#pendingAmount').value||0); if(!goalId||!bits) return A.setStatus('#pendingStatus','Elige meta y cantidad.','bad'); try{ await A.api('/api/pending/apply',{method:'POST',body:JSON.stringify({goalId,bits})}); A.qs('#pendingAmount').value=''; A.setStatus('#pendingStatus','Aplicado.','ok'); await load(); }catch(e){A.setStatus('#pendingStatus',e.message,'bad');} });
+load().catch(e=>{ A.qs('#goals').innerHTML=`<div class="empty">${A.esc(e.message)}</div>`; });
+A.connectEvents(render);
+</script>
+</body>
+</html>

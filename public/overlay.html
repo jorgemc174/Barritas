@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Overlay OBS</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="overlay-body">
+  <div id="mount"></div>
+<script src="/app.js"></script>
+<script>
+const A = window.MetasApp;
+const mount = A.qs('#mount');
+
+function selectedCategoryId() {
+  const parts = location.pathname.split('/').filter(Boolean);
+  return parts[0] === 'overlay' && parts[1] ? decodeURIComponent(parts[1]) : null;
+}
+
+function applyCategoryStyle(board, cat) {
+  board.style.setProperty('--box-color', cat?.boxColor || '#06008f');
+  board.style.setProperty('--text-color', cat?.textColor || '#fff');
+  board.style.setProperty('--title-color', cat?.titleColor || '#fff');
+  board.style.setProperty('--number-color', cat?.numberColor || '#fff');
+}
+
+function rowHtml(goal) {
+  const text = A.overlayGoalText(goal);
+  const m = text.match(/^(.*?)(\s-\s)([0-9\.]+)$/);
+  if (m) {
+    return `<div class="overlay-row"><span>${A.esc(m[1])}${A.esc(m[2])}</span><span class="overlay-value">${A.esc(m[3])}</span></div>`;
+  }
+  return `<div class="overlay-row">${A.esc(text)}</div>`;
+}
+
+function boardHtml(cat, goals, indexMode = false) {
+  return `
+    <section class="overlay-board ${indexMode ? 'overlay-board-index' : ''}" data-board-id="${A.esc(cat.id || 'general')}">
+      <div class="overlay-content">
+        <div class="overlay-title">${A.esc(cat.title || cat.name || 'METAS')}</div>
+        <div class="overlay-list">
+          ${goals.length ? goals.map(rowHtml).join('') : '<div class="overlay-empty">NO HAY METAS ACTIVAS</div>'}
+        </div>
+      </div>
+    </section>`;
+}
+
+function fitBoard(board) {
+  const content = board.querySelector('.overlay-content');
+  if (!board || !content) return;
+
+  // Restablece antes de medir para que, si haces el cuadro más ancho, el texto pueda volver a crecer.
+  board.style.setProperty('--row-size', '40px');
+  board.style.setProperty('--title-size', '48px');
+
+  const w = Math.max(60, board.clientWidth);
+  const h = Math.max(60, board.clientHeight);
+  let lo = 6;
+  let hi = Math.min(170, Math.max(18, Math.min(w / 4.2, h / 1.8)));
+  let best = lo;
+
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    board.style.setProperty('--row-size', mid + 'px');
+    board.style.setProperty('--title-size', (mid * 1.18) + 'px');
+    const fits = content.scrollWidth <= content.clientWidth + 1 && content.scrollHeight <= content.clientHeight + 1;
+    if (fits) { best = mid; lo = mid; }
+    else hi = mid;
+  }
+
+  board.style.setProperty('--row-size', Math.floor(best) + 'px');
+  board.style.setProperty('--title-size', Math.floor(best * 1.18) + 'px');
+}
+
+function fitAll() {
+  document.querySelectorAll('.overlay-board').forEach(fitBoard);
+}
+
+function renderSingle(state, cat) {
+  document.body.className = 'overlay-body overlay-single-body';
+  const goals = (state.goals || []).filter(g => A.goalActive(g) && g.categoryId === cat.id);
+  mount.innerHTML = `<div class="overlay-stage">${boardHtml(cat, goals, false)}</div>`;
+  applyCategoryStyle(A.qs('.overlay-board'), cat);
+  requestAnimationFrame(fitAll);
+}
+
+function renderIndex(state) {
+  document.body.className = 'overlay-body overlay-index-body';
+  const cats = state.categories || [];
+  mount.innerHTML = `
+    <main class="overlay-index-page">
+      <header class="overlay-index-header">
+        <h1>Vista de overlays por categoría</h1>
+        <p>Para OBS usa la URL de cada categoría, por ejemplo <b>/overlay/capitulos</b>. Esta pantalla es solo para revisar que se vea todo.</p>
+      </header>
+      <section class="overlay-index-grid">
+        ${cats.map(cat => {
+          const goals = (state.goals || []).filter(g => A.goalActive(g) && g.categoryId === cat.id);
+          return `<article class="overlay-index-card">
+            <div class="overlay-index-meta">
+              <strong>${A.esc(cat.name)}</strong>
+              <span>/overlay/${A.esc(cat.id)}</span>
+            </div>
+            ${boardHtml(cat, goals, true)}
+          </article>`;
+        }).join('') || '<div class="empty">No hay categorías creadas.</div>'}
+      </section>
+    </main>`;
+  cats.forEach(cat => {
+    const board = document.querySelector(`[data-board-id="${CSS.escape(cat.id)}"]`);
+    if (board) applyCategoryStyle(board, cat);
+  });
+  requestAnimationFrame(fitAll);
+}
+
+function render(state) {
+  const catId = selectedCategoryId();
+  if (!catId) return renderIndex(state);
+
+  const cat = (state.categories || []).find(c => c.id === catId || A.slugify(c.name) === catId);
+  if (!cat) {
+    document.body.className = 'overlay-body overlay-index-body';
+    mount.innerHTML = `<main class="overlay-index-page"><div class="empty">No existe la categoría: ${A.esc(catId)}</div></main>`;
+    return;
+  }
+  renderSingle(state, cat);
+}
+
+async function load() {
+  try {
+    render(await A.api('/api/state'));
+  } catch (err) {
+    mount.innerHTML = `<main class="overlay-index-page"><div class="empty">${A.esc(err.message)}</div></main>`;
+  }
+}
+
+window.addEventListener('resize', fitAll);
+if ('ResizeObserver' in window) {
+  new ResizeObserver(fitAll).observe(document.body);
+}
+if (document.fonts?.ready) document.fonts.ready.then(fitAll).catch(() => {});
+
+load();
+A.connectEvents(render);
+</script>
+</body>
+</html>
