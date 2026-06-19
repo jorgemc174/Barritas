@@ -1,0 +1,15 @@
+{
+  "settings": { "title": "METAS DEL DIRECTO", "pointsPerEuro": 100, "unassignedBits": 0 },
+  "categories": [
+    { "id": "capitulos", "name": "Capítulos", "title": "TENEMOS 5 CAPÍTULOS Y MEDIO A DISTRIBUIR XD:", "boxColor": "#05008f", "textColor": "#ffffff", "titleColor": "#ffffff", "numberColor": "#ffffff" },
+    { "id": "juegos", "name": "Juegos", "title": "JUEGOS PENDIENTES", "boxColor": "#050505", "textColor": "#ff2323", "titleColor": "#ff2323", "numberColor": "#ff2323" }
+  ],
+  "goals": [
+    { "id": "pepelus-opuestos", "type": "chapters", "name": "Pepelus opuestos", "categoryId": "capitulos", "bitsPerChapter": 2600, "totalChapters": 12, "completedChapters": 0, "currentBits": 0, "visible": true, "completed": false },
+    { "id": "akane-bashi", "type": "chapters", "name": "Akane Bashi", "categoryId": "capitulos", "bitsPerChapter": 2500, "totalChapters": 11, "completedChapters": 0, "currentBits": 0, "visible": true, "completed": false },
+    { "id": "re-zero", "type": "chapters", "name": "Re Zero", "categoryId": "capitulos", "bitsPerChapter": 5000, "totalChapters": 1, "completedChapters": 0, "currentBits": 0, "visible": true, "completed": false },
+    { "id": "star-rail", "type": "normal", "name": "Star Rail 4.3", "categoryId": "juegos", "targetBits": 14675, "currentBits": 0, "visible": true, "completed": false },
+    { "id": "lego-batman", "type": "normal", "name": "Lego Batman", "categoryId": "juegos", "targetBits": 23500, "currentBits": 0, "visible": true, "completed": false }
+  ],
+  "transactions": []
+}
